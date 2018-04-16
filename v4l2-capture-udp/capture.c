@@ -25,6 +25,8 @@
 #include <asm/types.h>		/* for videodev2.h */
 
 #include <linux/videodev2.h>
+#include "snapshot_client.h"
+#include "capture.h"
 
 #define CLEAR(x) memset (&(x), 0, sizeof (x))
 
@@ -55,7 +57,7 @@ static int fd = -1;
 static struct buffer *buffers = NULL;
 static unsigned int n_buffers = 0;
 static unsigned int capture_count = 100;
-static unsigned int capture_interval = 10;
+static unsigned int capture_interval = 20;
 static unsigned int capture_idx = 0;
 static unsigned int capture_fmt = V4L2_PIX_FMT_YUYV;
 static unsigned int no_cap = 0;
@@ -76,18 +78,6 @@ int g_takeSnapshot = 0;
 
 pthread_t networkThread;
 pthread_mutex_t mutex;
-
-int mutexCondCheck();
-
-int mutexCondCheck()
-{
-   int val = 0;
-   pthread_mutex_lock (&mutex);
-   val = g_takeSnapshot;
-   pthread_mutex_unlock(&mutex);
-
-   return val;    
-}
 
 static int do_snapshot(void);
 
@@ -243,8 +233,14 @@ static int read_frame(void)
 
 #if USE_STILL
 		if ((capture_idx % capture_interval) == 0) {
-			do_snapshot();
+			if(g_takeSnapshot)
+			{
+				g_takeSnapshot = 0;
+				do_snapshot();
+
+			}
 		}
+
 #endif
 
 		break;
@@ -296,37 +292,9 @@ static void mainloop(void)
 
 	while (count-- > 0) {
 		for (;;) {
-#if 0
-			fd_set fds;
-			struct timeval tv;
-			int r;
-
-			FD_ZERO(&fds);
-			FD_SET(fd, &fds);
-
-			/* Timeout. */
-			tv.tv_sec = 2;
-			tv.tv_usec = 0;
-
-			r = select(fd + 1, &fds, NULL, NULL, &tv);
-
-			if (-1 == r) {
-				if (EINTR == errno)
-					continue;
-
-				errno_exit("select");
-			}
-
-			if (0 == r) {
-				fprintf(stderr, "select timeout\n");
-				exit(EXIT_FAILURE);
-			}
-#endif
 
 			if (read_frame())
 				break;
-
-			/* EAGAIN - continue select loop. */
 		}
 	}
 }
@@ -351,7 +319,7 @@ static void stop_capturing(void)
 	}
 }
 
-static void start_capturing(void)
+void start_capturing(void)
 {
 	unsigned int i;
 	enum v4l2_buf_type type;
@@ -831,7 +799,7 @@ static void usage(FILE * fp, int argc, char **argv)
 		"-s | --save          Save raw image\n"
 		"", argv[0]);
 }
-
+//-c 10 -i 5 -s -x $X -y $Y 
 static const char short_options[] = "d:c:i:hjmnrsup:q:x:y:";
 
 static const struct option long_options[] = {
@@ -943,10 +911,9 @@ int main(int argc, char **argv)
 
 	init_device();
 
-	start_capturing();
+	snapshotServerInit(6523, "0.0.0.0")
 
-	if (no_cap == 0)
-		mainloop();
+	serverMainLoop();
 
 	stop_capturing();
 
